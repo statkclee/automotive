@@ -1,0 +1,39 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 자동차 데이터
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: taengo
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(plotly)
+library(leaflet)
+library(hrbrthemes)
+library(extrafont)
+loadfonts()
+
+```
+
+
+## 자동차 데이터 {#automotive-data}
+
+- [A2Mac1](https://www.a2mac1.com)
+- [캐글 - Automobile Dataset: Dataset consist of various characteristic of an auto](https://www.kaggle.com/toramky/automobile-dataset)
+
+
+
+
