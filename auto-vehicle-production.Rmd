@@ -1,0 +1,254 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 자동차 생산량 - 제조사별, 국가별
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(tidyverse)
+library(rvest)
+library(tesseract)
+library(pdftools)
+library(stringr)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+library(gridExtra)
+library(lubridate)
+library(plotly)
+```
+
+## 1. 자동차 생산량 데이터 {#vehicle-production-dataset}
+
+제조사별 자동차 생산량 데이터는 현재 `r Sys.Date()` 기준 2016년 데이터만 올라와 있고, 내년 1월 초에 2017년 데이터가 올라올 것으로 기대된다.
+위키백과 [List of manufacturers by motor vehicle production](https://en.wikipedia.org/wiki/List_of_manufacturers_by_motor_vehicle_production) 웹사이트에 
+2004 - 2016년까지 제조사별 자동차 생산량 데이터가 올라와 있으나 형태가 년도별로 상이하다.
+
+이를 위해서 일단, 자동차 생산량 데이터를 일단 가져온다.
+
+
+``` {r wiki-vehicle-production-dataset}
+# 0. 환경설정 ---------------
+library(tidyverse)
+library(rvest)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+library(gridExtra)
+library(lubridate)
+library(plotly)
+
+# 1. 데이터 가져오기 ---------------
+autowiki_webpage <- read_html("https://en.wikipedia.org/wiki/List_of_manufacturers_by_motor_vehicle_production")
+
+html_nodes(autowiki_webpage, "table")
+
+# 자동차 생산량 2016
+vp_2016_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[1] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+# 자동차 생산량 2015
+vp_2015_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[2] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+# 자동차 생산량 2014
+vp_2014_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[3] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+# 자동차 생산량 2013
+vp_2013_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[4] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+# 자동차 생산량 2012
+vp_2012_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[5] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+# 자동차 생산량 2011
+vp_2011_dat <- autowiki_webpage %>%
+  html_nodes("table") %>%
+  .[6] %>%
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+```
+
+## 2. 데이터 정제 {#vehicle-production-dataset-preprocessing}
+
+연도별 데이터 구분을 지정하고 데이터를 병합하고 웹사이트에서 데이터를 긁어오는 과정에서 발생한 오류에 대한 수정작업도 수행한다.
+그리고 나서, 제조사와 국적에 대한 정제작업을 수행한다.
+
+``` {r wiki-vehicle-production-dataset-preprocessing}
+# 2. 데이터 정제하기 ---------------
+## 2.1. 연도별 데이터 합치기 -----------
+## 2012 - 2016 자동차 생산량 데이터 정제
+vp_2016_dat <- vp_2016_dat %>% mutate(연도 = "2016")
+vp_2015_dat <- vp_2015_dat %>% mutate(연도 = "2015")
+vp_2014_dat <- vp_2014_dat %>% mutate(연도 = "2014")
+vp_2013_dat <- vp_2013_dat %>% mutate(연도 = "2013")
+vp_2012_dat <- vp_2012_dat %>% mutate(연도 = "2012")
+
+vp_2015_2016_dat <- bind_rows(vp_2015_dat, vp_2016_dat)  
+vp_2012_2014_dat <- bind_rows(vp_2012_dat, vp_2013_dat) %>% 
+  bind_rows(vp_2014_dat) %>% 
+  select(Rank, Group, Country, Vehicles = Total, 연도)
+
+vp_2012_2016_df <- bind_rows(vp_2012_2014_dat, vp_2015_2016_dat)
+
+## 2011년 자동차 생산량 데이터 정제
+vp_2011_df <- vp_2011_dat %>% select(X1, X120) %>% 
+  filter(row_number() >= 4 & row_number() <= 23) %>% 
+  mutate(X120 = ifelse(is.na(X120), "6,616,858", X120)) %>% 
+  separate(X1, into=c("Rank", "Group")) %>% 
+  mutate(Rank = as.integer(Rank),
+        연도 = "2011",
+        Country = "") %>% 
+  select(Rank, Group, Country, Vehicles = X120, 연도)
+
+glimpse(vp_2012_2016_df)
+  
+## 2011 - 2016 년 자동차 생산량 데이터 정제
+vp_dat <- bind_rows(vp_2011_df, vp_2012_2016_df)
+
+## 2.2. 연도별 데이터 정제 작업 -----------
+
+vp_df <- vp_dat %>% mutate(제조사 = case_when(
+  str_detect(Group, "General") ~ "General Motors",
+  str_detect(Group, "Groupe") ~ "Groupe PSA",
+  str_detect(Group, "Hyundai") ~ "Hyundai / Kia",
+  str_detect(Group, "Volkswagen") ~ "Volkswagen Group",
+  str_detect(Group, "Dongfeng") ~ "Dongfeng Motor",
+  TRUE ~ Group
+))
+
+maker_country_tbl <- vp_df %>% group_by(제조사, Country) %>% 
+  summarise(cnt = n()) %>% 
+  filter(cnt >=2) %>% select(제조사, Country)
+
+vp_df <- left_join(vp_df, maker_country_tbl, by="제조사")
+
+vp_df <- vp_df %>% select(연도, Rank, 제조사, 국적 = Country.y, 생산량 = Vehicles) %>% 
+  mutate(국적 = case_when(
+    str_detect(국적, "^Italy.*States$") ~ "Italy / United States",
+    str_detect(제조사, "Fiat") ~ "Italy",
+    str_detect(제조사, "Chrysler") ~ "United States",
+    str_detect(제조사, "Great Wall") ~ "China",
+    TRUE ~ 국적)  ) %>% 
+  mutate(생산량 =  ifelse(str_detect(생산량, "\\("), str_extract(vp_df$Vehicles, "\\((.*?)\\)"), 생산량))
+
+vp_df$생산량 <- map(str_extract_all(vp_df$생산량, "[0-9]+"), str_c, collapse = "") %>% unlist %>% as.integer
+
+saveRDS(vp_df, "data_processed/vp_df.rds")
+```
+
+## 3. 시각화 및 표 {#vehicle-production-dataset-viz-table}
+
+### 3.1. 제조사별 생산량 {#vehicle-production-dataset-table}
+
+연도별 각 제조사별 생산량에 대한 추세를 표를 통해 살펴본다.
+
+``` {r wiki-vehicle-production-dataset-table}
+# 3. 자동차 생산량 시각화 -----------
+## 3.1. 시각화를 위한 데이터 
+vp_gg_df <- vp_df %>% mutate(제조사 = case_when(
+  str_detect(제조사, "Fiat|Chrysler") ~ "Fiat Chrysler",
+  TRUE ~ 제조사)) %>% mutate(국가구분 = case_when(
+    str_detect(국적, "India") ~ "인도",
+    str_detect(국적, "China") ~ "중국",
+    str_detect(국적, "France|Germany|Italy") ~ "유럽",
+    str_detect(국적, "^United States") ~ "미국",
+    str_detect(국적, "South Korea") ~ "한국",
+    str_detect(국적, "Japan") ~ "일본",
+    TRUE ~ "")) %>% 
+  mutate(생산량 = 생산량 / 10^6)
+
+## 3.2. 자동차 제조사 연도별 생산량 추세
+vp_gg_df %>% mutate(생산량 = 생산량 * 10^6) %>% 
+  select(-Rank) %>% spread(연도, 생산량) %>% 
+  DT::datatable() %>% 
+    DT::formatCurrency(c(4:10), currency="", digits=0)
+```
+
+### 3.2. 주요 국가별 생산량 추세 {#vehicle-production-dataset-viz-by-country}
+
+중국과 인도가 자동차를 주요 국가 기간산업으로 삼아 육성하는데 심혈을 기울이고 있다.
+이에 유럽, 미국, 중국, 인도, 일본, 한국을 작은 다수 창(Small Muliple) 형태로 생산량 변화를 시각적으로 살펴보자.
+
+``` {r wiki-vehicle-production-dataset-viz-small-multiple}
+## 3.3. 주요 국가별 자동차 생산량 추세
+vp_gg_df %>% 
+  mutate(연도 = make_date(year=연도)) %>% 
+  ggplot(aes(x=연도, y=생산량, group=제조사, color=국가구분)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~국가구분, scale="free") +
+  theme_pubr(base_family = "NanumGothic") +
+  theme(legend.position = "none") +
+  labs(x="", y="자동차 생산량(단위: 백만대)", title="주요 국가별 자동차 생산량 비교")+
+  scale_x_date(limits = c(ymd("2011-01-01"), ymd("2016-01-01")))
+```
+
+### 3.2. 주요 자동차 제조사 생산량 추세 {#vehicle-production-dataset-viz-by-maker}
+
+유럽과 미국, 중국, 일본, 한국 주요 제조사를 선택하여 자동차 생산량 변화 추세를 시각적으로 살펴보자.
+
+``` {r wiki-vehicle-production-dataset-viz-plotly}
+## 3.4. 주요 자동차 제조사
+
+major_automaker <- c("BMW", "Daimler", "SAIC", "General Motors", "Honda", "Hyundai / Kia", "Toyota", "Volkswagen Group")
+
+vp_maker_gg <- vp_gg_df %>% 
+  filter(제조사 %in% major_automaker) %>% 
+  mutate(연도 = make_date(year=연도)) %>% 
+  ggplot(aes(x=연도, y=생산량, group=국적, color=제조사)) +
+  geom_point() +
+  geom_line() +
+  theme_pubr(base_family = "NanumGothic") +
+  labs(x="", y="자동차 생산량(단위: 백만대)", title="주요 제조사 자동차 생산량 비교")+
+  scale_x_date(limits = c(ymd("2011-01-01"), ymd("2016-01-01")))
+
+ggplotly(vp_maker_gg)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -15,8 +15,10 @@ title: 자동차 데이터
 ## 학습목차 
 
 - [자동차 데이터](auto-dataset.html)
-- [초기품질지수(IQS)](auto-iqs.html)
-- [차량 내구성 조사(VDS)](auto-vds.html)
+- [자동차 생산량 - 제조사별, 국가별](auto-vehicle-production.html)
+- **자동차 품질**
+    - [초기품질지수(IQS)](auto-iqs.html)
+    - [차량 내구성 조사(VDS)](auto-vds.html)
 
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
