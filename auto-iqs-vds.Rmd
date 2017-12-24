@@ -1,0 +1,135 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 초기품질지수 vs 차량 내구성 조사
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(tidyverse)
+library(rvest)
+library(tesseract)
+library(pdftools)
+library(stringr)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+library(gridExtra)
+library(lubridate)
+library(plotly)
+```
+
+## 1. 초기품질지수와 차량 내구성 조사 비교 {#iqs-vds-comparison}
+
+[초기품질지수(IQS)](auto-iqs.html), [차량 내구성 조사(VDS)](auto-vds.html)를 조합해서 주요 제조사별로 교차분석을 수행해 보자.
+
+## 2. IQS 대 VDS {#iqs-vs-vds-comparison}
+
+### 2.1. 환경설정 및 데이터 가져오기 {#iqs-vs-vds-package-data}
+
+[초기품질지수(IQS)](auto-iqs.html), [차량 내구성 조사(VDS)](auto-vds.html) 교차분석에 필요한 팩키지와 데이터를 가져온다.
+
+``` {r iqs-vds-setup}
+# 0. 환경설정 ---------------
+library(tidyverse)
+library(rvest)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+library(gridExtra)
+library(lubridate)
+
+# 1. 데이터 가져오기 ---------------
+
+iqs_df <- readRDS("data_processed/iqs_df.rds")
+vds_df <- readRDS("data_processed/vds_df.rds")
+```
+
+### 2.2. 데이터 전처리 {#iqs-vs-vds-data-preprocessing}
+
+IQS, VDS 데이터프레임에 "구분" 필드를 추가해서 구분할 수 있도록 하고 `bind_rows` 함수로 결합시킨다.
+그리고 나서 고급차가 아닌 일반 대중차를 대량생산하는 주요 자동차 제조사를 식별하는 필드를 추가한다.
+
+``` {r iqs-vds-preprocessing}
+# 2. 데이터 전처리 ---------------
+
+iqs_df <- iqs_df %>% 
+  mutate(구분 = "IQS") %>% 
+  rename(산업평균 = IQS산업평균)
+
+vds_df <- vds_df %>% 
+  mutate(구분 = "VDS") %>% 
+  rename(산업평균 = IQS산업평균)
+
+iqs_vds_df <- bind_rows(iqs_df, vds_df)
+
+iqs_vds_df <- iqs_vds_df %>% 
+  mutate(현대기아 = case_when(
+    stringr::str_detect(제조사, "Kia") ~ "기아",
+    stringr::str_detect(제조사, "Volkswagen") ~ "폭스바겐",
+    stringr::str_detect(제조사, "Hyundai") ~ "현대",
+    stringr::str_detect(제조사, "Toyota") ~ "도요타",
+    stringr::str_detect(제조사, "Industry Average") ~ "산업평균",
+    TRUE ~ "해외업체"
+  )) %>% 
+  mutate(현대기아 = factor(현대기아, levels=c("기아", "현대", "도요타", "폭스바겐", "산업평균", "해외업체")))
+```
+
+### 2.3. IQS, VDS 표 {#iqs-vs-vds-viz-table}
+
+각 회사를 대표하는 색상을 정의하고 나서 연도별 IQS, VDS 문제갯수를 도표로 작성한다.
+
+``` {r iqs-vds-table}
+# 3. 시각화 ---------------
+## 3.0. 색상 팔레트 설정
+hkmc_cols <- c(기아 = "#ff0000",
+               현대 = "#0000ff",
+               폭스바겐 = "#4286f4",
+               도요타 ="#ad1f1f",
+               산업평균 = "#000000",
+               해외업체 = "#b7b7b7")
+
+## 3.0. 주요 메이커 추출
+key_auto_maker <- c("BMW", "Ford", "GMC", "Honda", "Hyundai", "Industry Average","Kia","Mercedes-Benz", "Toyota", "Volkswagen")
+
+## 3.1. 표
+iqs_vds_df %>% spread(연도, 문제갯수) %>% 
+  DT::datatable()
+```
+
+### 2.3. IQS, VDS 시각화 {#iqs-vs-vds-viz-plotly}
+
+각 회사를 대표하는 색상도 반영하고, 연도별 IQS, VDS 문제갯수를 동적 그래프로 살펴볼 수 있도록 도식화한다.
+
+``` {r iqs-vds-plotly}
+## 3.2. 시각화
+iqs_vds_gg <- iqs_vds_df %>% 
+  mutate(연도 = make_date(year=연도)) %>% 
+  filter(제조사 %in% key_auto_maker) %>% 
+  ggplot(aes(x=연도, y=문제갯수, group=제조사, color=현대기아)) +
+    geom_line() +
+    geom_point() +
+    scale_color_manual(values=hkmc_cols) +
+    facet_wrap(~구분, scale="free") +
+    theme_pubr(base_family="NanumGothic") +
+    labs(x="", y="결함갯수", color="제조사")
+
+ggplotly(iqs_vds_gg)
+```
+
+
+
+
