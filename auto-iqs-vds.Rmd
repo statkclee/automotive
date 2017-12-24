@@ -29,6 +29,17 @@ loadfonts()
 library(gridExtra)
 library(lubridate)
 library(plotly)
+
+library(factoextra)
+library(FactoMineR)
+library(clustertend)
+library(NbClust)
+library(clValid)
+library(mclust)
+library(pheatmap)
+library(ggthemes)
+library(extrafont)
+library(gridExtra)
 ```
 
 ## 1. 초기품질지수와 차량 내구성 조사 비교 {#iqs-vds-comparison}
@@ -131,5 +142,193 @@ ggplotly(iqs_vds_gg)
 ```
 
 
+## 3. 자동차 제조사 군집분석 {#iqs-vs-vds-clustering}
 
+수많은 제조업체가 있는데 초기품질지수와 차량내구성 점수를 바탕으로 결함갯수, 
+즉 품질이 유사한 업체를 군집분석을 통해 확인해보자.
+
+### 3.1. 군집분석 도구상자 및 데이터 {#iqs-vs-vds-clustering-toolbox}
+
+먼저 군집분석에 필요한 관련 팩키지와 함께 IQS, VDS 데이터를 준비하자.
+
+``` {r clustering-toolbox}
+# 0. 추가 환경설정 ---------------
+# library(factoextra)
+# library(FactoMineR)
+# library(clustertend)
+# library(NbClust)
+# library(clValid)
+# library(mclust)
+# library(pheatmap)
+# library(ggthemes)
+# library(extrafont)
+# library(gridExtra)
+
+# 1. 데이터 가져오기 ---------------
+
+iqs_df <- readRDS("data_processed/iqs_df.rds")
+vds_df <- readRDS("data_processed/vds_df.rds")
+```
+
+### 3.2. IQS, VDS 군집데이터 전처리 {#iqs-vs-vds-clustering-preprocessing}
+
+먼저 군집분석에 필요한 관련 팩키지와 함께 IQS, VDS 데이터를 준비하자.
+결측값이 있는 경우는 각 제조사 평균 IQS, VDS 결함갯수로 채워넣고, 
+**Fiat**는 군집분석을 통해서 이상점으로 파악되어 분석에서 제외한다.
+
+``` {r clustering-preporcessing}
+# 2. 데이터 전처리 ---------------
+## 2.1. IQS 폭넓은 데이터
+iqs_df <- iqs_df %>% 
+  mutate(구분 = "IQS") %>% 
+  rename(산업평균 = IQS산업평균)
+
+iqs_spread_df <- iqs_df %>% spread(연도, 문제갯수) %>% 
+  filter(!제조사 %in% c("CadiMac", "Genesis", "Suzuki")) %>% 
+  mutate(제조사평균 = rowMeans(.[-1:-7], na.rm=TRUE)) %>% 
+  mutate(`2011` = ifelse(is.na(`2011`), 제조사평균, `2011`), 
+         `2012` = ifelse(is.na(`2012`), 제조사평균, `2012`), 
+         `2013` = ifelse(is.na(`2013`), 제조사평균, `2013`), 
+         `2014` = ifelse(is.na(`2014`), 제조사평균, `2014`), 
+         `2015` = ifelse(is.na(`2015`), 제조사평균, `2015`), 
+         `2016` = ifelse(is.na(`2016`), 제조사평균, `2016`), 
+         `2017` = ifelse(is.na(`2017`), 제조사평균, `2017`)) %>% 
+  select(-제조사평균, -산업평균, -현대기아)
+
+## 2.2. VDS 폭넓은 데이터
+vds_df <- vds_df %>% 
+  mutate(구분 = "VDS") %>% 
+  rename(산업평균 = IQS산업평균)
+
+vds_spread_df <- vds_df %>% spread(연도, 문제갯수) %>% 
+  filter(!제조사 %in% c("SAAB", "smart", "Suzuki")) %>% 
+  mutate(제조사평균 = rowMeans(.[-1:-7], na.rm=TRUE)) %>%
+  mutate(`2011` = ifelse(is.na(`2011`), 제조사평균, `2011`), 
+         `2012` = ifelse(is.na(`2012`), 제조사평균, `2012`), 
+         `2013` = ifelse(is.na(`2013`), 제조사평균, `2013`), 
+         `2014` = ifelse(is.na(`2014`), 제조사평균, `2014`), 
+         `2015` = ifelse(is.na(`2015`), 제조사평균, `2015`), 
+         `2016` = ifelse(is.na(`2016`), 제조사평균, `2016`), 
+         `2017` = ifelse(is.na(`2017`), 제조사평균, `2017`)) %>% 
+  select(-제조사평균, -산업평균, -현대기아)
+
+## 2.3. 군집분석용 데이터 -----------------------
+iqs_vds_spread_df <- inner_join(iqs_spread_df, vds_spread_df, by=c("제조사")) %>% 
+  select(-구분.x, -구분.y) %>% 
+  filter(제조사 != "Fiat")
+```
+
+### 3.3. IQS, VDS 군집 알고리즘 {#iqs-vs-vds-clustering-algorithm}
+
+IQS, VDS 결함갯수 데이터를 바탕으로 군집분석을 수행하기 위해서 순차적으로 최적 군집 알고리즘을 구축해 나간다.
+
+1. 군집은 존재하는가?
+1. 군집이 존재한다면 몇개일까?
+1. 데이터에 적합한 최적 군집 알고리즘은 무엇일까?
+
+``` {r clustering-algorithm}
+# 3. 군집분석 ---------------
+## 3.1. 군집분석 데이터
+iqs_vds_cl_df <- iqs_vds_spread_df %>% 
+  select(-제조사) %>% 
+  as.data.frame()
+
+row.names(iqs_vds_cl_df) <- iqs_vds_spread_df$제조사
+
+## 3.2. 군집은 존재하는가?
+iqs_vds_cl_df %>% 
+  dist() %>% 
+  fviz_dist(., show_labels = FALSE) +
+  labs(title = "IQS, VDS 자동차 품질 군집분석") +
+  coord_fixed()
+
+iqs_vds_cl_df %>% 
+  clustertend::hopkins(., nrow(iqs_vds_cl_df) -1)
+
+## 3.3. 군집이 존재한다면 몇개일까? ------------------
+### 3.3.1. 팔꿈치 방법
+elbow_g <- iqs_vds_cl_df %>% 
+  fviz_nbclust(., kmeans, method = "wss") +
+  theme_few(base_family = "NanumGothic") +
+  geom_vline(xintercept = 3, linetype = 2) +
+  scale_y_continuous(labels = scales::comma ) +
+  labs(x="군집갯수(k)", y="전체 군집내 제곱합", title="최적 군집갯수", subtitle = "팔꿈치 방법(Elbow method)") 
+
+### 3.3.2. 실루엣 방법
+silhouette_g <- iqs_vds_cl_df %>% 
+  fviz_nbclust(., kmeans, method = "silhouette") +
+  theme_few(base_family = "NanumGothic") +
+  geom_vline(xintercept = 2, linetype = 2) +
+  scale_y_continuous(labels = scales::comma ) +
+  labs(x="군집갯수(k)", y="평균 실루엣 폭", 
+       title="최적 군집갯수", subtitle = "실루엣 방법(silhouette method)") 
+
+### 3.3.3. 갭 방법
+gap_g <- iqs_vds_cl_df %>% 
+  fviz_nbclust(., kmeans, nstart = 25, method = "gap_stat", nboot = 50) +
+  theme_few(base_family = "NanumGothic") +
+  geom_vline(xintercept = 2, linetype = 2) +
+  scale_y_continuous(labels = scales::comma ) +
+  labs(x="군집갯수(k)", y="갭 통계량(k)", 
+       title="최적 군집갯수", subtitle = "갭 방법(gap method)") 
+
+grid.arrange(elbow_g, silhouette_g, gap_g, nrow=3)
+
+### 3.3.4. NbClust 방법
+
+iqs_vds_cl_df %>% 
+  NbClust(., distance = "euclidean", min.nc = 2, max.nc = 10, method = "kmeans") %>% 
+  fviz_nbclust() +
+  scale_y_continuous(labels = scales::comma ) +
+  labs(x="군집갯수(k)", y="추천 빈도수", 
+       title="최적 군집갯수", subtitle = "NbClust 방법") 
+
+## 3.4. 최적 군집 알고리즘 선택 ------------------
+clmethods <- c("hierarchical", "kmeans", "diana", "fanny", "model", "sota", "pam", "clara", "agnes")
+
+clust_algo <- iqs_vds_cl_df %>% 
+  as.matrix %>%
+  clValid(., nClust = 2:4,
+          clMethods = clmethods, validation = "internal")
+
+summary(clust_algo)
+```
+
+### 3.4. 최종 IQS, VDS 군집 분석 {#iqs-vs-vds-clustering-algorithm-fitting}
+
+통계 알고리즘이 제안하는 군집 갯수와 알고리즘과 자동차 제조사 정보를 종합하여 
+군집은 3개로 놓고, 계층적 군집알고리즘을 적합시킨다.
+
+- 군집 1: 렉서스, 포르쉐, 도요타가 주요 제조사로 포함된 고품질 고가 차량 제조사
+- 군집 2: 현대, 기아, BMW, GM 등이 포함된 중간 품질 대중차량 제조사
+- 군집 3: 미니, 랜드로버, 폭스바겐이 포함된 품질문제가 심각한 차량 제조사 
+
+
+``` {r clustering-algorithm-fitting}
+## 3.5. 최적 군집 알고리즘 적합: 계층적 군집 3개 ------------------
+
+iqs_vds_hclust <- iqs_vds_cl_df %>% 
+  get_dist(method = "euclidean") %>% 
+  hclust(method = "ward.D2")
+
+## 3.6. 군집분석 시각화 ------------------
+### 3.6.1. 수목도(dendogram) 
+fviz_dend(iqs_vds_hclust, k = 3,
+          cex = 0.5,
+          k_colors = c("#2E9FDF", "#FC4E07"),
+          color_labels_by_k = TRUE,
+          rect = TRUE) +
+  theme_void(base_family="NanumGothic") + 
+  labs(title="자동차 제조사 품질", subtitle="계층적 군집분석 알고리즘 - 군집 3개")
+
+### 3.6.2. 군집 시각화
+iqs_vds_grp <- cutree(iqs_vds_hclust, k = 3)
+
+fviz_cluster(list(data = iqs_vds_cl_df, cluster = iqs_vds_grp),
+             palette = c("#2E9FDF", "#FC4E07", "#0daf05"),
+             ellipse.type = "convex", 
+             repel = TRUE, 
+             show.clust.cent = FALSE, ggtheme = theme_minimal(base_family = "NanumGothic")) +
+  labs(title="자동차 제조사 품질", subtitle="계층적 군집분석 알고리즘 - 군집 3개")
+```
 
