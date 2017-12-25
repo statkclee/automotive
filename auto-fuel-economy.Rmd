@@ -1,0 +1,279 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 자동차 연비
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(ggridges)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+
+```
+
+## 1. 차량 연료 경제성 [^fuel-economy-python] [^mpg-to-litter] [^fuel-economy-restful-api] {#fuel-economy}
+
+[^fuel-economy-python]: [Data Exploration with Python, Part 2, "Preparing Your Data to be Explored", Tony Ojeda](http://blog.districtdatalabs.com/data-exploration-with-python-2)
+
+[^mpg-to-litter]: [위키백과 - Fuel economy in automobiles](https://en.wikipedia.org/wiki/Fuel_economy_in_automobiles#Unit_conversions)
+
+[^fuel-economy-restful-api]: [How to Access Any RESTful API Using the R Language](https://www.programmableweb.com/news/how-to-access-any-restful-api-using-r-language/how-to/2017/07/21)
+
+자동차 연료의 효율성을 측정하는 지표로 영미권(영국, 미국, 캐나다)에서는 US 갤런과 Imperial 갤런을 사용하고 
+통상 MPG(Miles Per Gallon)로 표기합니다. 우리나라에서는 $km/l$ 단위를 사용하고, 
+대부분의 유럽, 아시아, 아프리카 오스트리아, 뉴질랜드 국가에서 $L/100 km$ 단위를 사용합니다.
+
+US 갤런을 $km/l$로 변환하면 미국에서 시판되는 자동차에 대한 연비를 한국과 간접적으로 비교할 수가 있습니다.
+
+## 2. 자동차 연비 비교 {#fuel-economy-by-vehicle}
+
+### 2.1. 환경설정 및 데이터 가져오기 {#fuel-economy-configuration}
+
+[Download Fuel Economy Data](https://www.fueleconomy.gov/feg/download.shtml) 웹사이트에서 미국에서 시판중인 자동차 연비데이터를 다운로드 받아 분석에 활용한다.
+
+``` {r fuel-economy-setup}
+# 0. 환경설정 ------------------
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(ggridges)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+
+# 1. 데이터 가져오기 환경설정 -------------------------
+
+if (!file.exists("data/vehicles.csv")) {
+  tmp <- tempfile(fileext = ".zip")
+  download.file("http://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip", tmp, quiet = TRUE)
+  unzip(tmp, exdir = "data")
+}
+
+vehicles_dat <- read_csv("data/vehicles.csv")
+
+vehicles_df <- vehicles_dat %>%
+  tbl_df() %>%
+  select(id, maker=make, model, year, class = VClass, trans = trany, drive = drive,
+         cyl = cylinders, displ = displ, fuel = fuelType, hwy = highway08,
+         cty = city08, co2 = co2TailpipeGpm) %>%
+  filter(drive != "") %>%
+  arrange(maker, model, year)
+
+```
+
+### 2.2. 데이터 전처리 {#fuel-economy-preprocessing}
+
+자동차 연료유형, 차동차 유형(class), 변속기 등을 재정의하고, 
+MPG를 `km/l`로 변환한다. [위키 단위 변환](https://en.wikipedia.org/wiki/Fuel_economy_in_automobiles#Unit_conversions)을 참고했다.
+
+- 1 MPG $\approx$ 0.425 km/L
+
+``` {r fuel-economy-preprocessing}
+# 2. 데이터 정제  ------------------
+## 2.1. 범주형 데이터 범주 반영 -----------
+vehicles_df <- vehicles_df %>% mutate(fuel_type = case_when(
+  str_detect(fuel, "Gasoline|Midgrade") ~ "Gasoline",
+  str_detect(fuel, "Premium") ~ "Premium",
+  str_detect(fuel, "Regular") ~ "Regular",
+  str_detect(fuel, "Diesel") ~ "Diesel",
+  str_detect(fuel, "CNG") ~ "CNG",
+  str_detect(fuel, "Electricity") ~ "Electricity"
+)) %>% mutate(vclass = case_when(
+  str_detect(class, "[S|s]mall") ~ "Small Cars",
+  str_detect(class, "[M|m]idsize") ~ "Midsize Cars",
+  str_detect(class, "[L|l]arge") ~ "Large Cars",
+  str_detect(class, "[T|t]ruck") ~ "Pickup Trucks",
+  str_detect(class, "[S|s]pecial Purpose") ~ "Special Purpose",
+  str_detect(class, "[S|s]port Utility") ~ "SUV",
+  str_detect(class, "[V|v]an") ~ "Vans & Minivans",
+  TRUE ~ class
+)) %>% 
+  mutate(trans = ifelse(str_detect(trans, "Auto"), "Automatic", "Manual")) %>% 
+  mutate(drive = case_when(
+    str_detect(drive, "All-Wheel Drive") ~ "All-Wheel Drive",
+    str_detect(drive, "Part-time 4-Wheel Drive") ~ "4-Wheel Drive",
+    TRUE ~ drive
+  )) %>% 
+    mutate(hwy_l = hwy * 0.425,
+           cty_l = cty * 0.425) %>%  # MPG --> km/l 변환 -----------
+  select(maker, model, year, vclass, trans, drive, cyl, displ, fuel_type, hwy, cty, hwy_l, cty_l, co2)
+
+vehicles_df %>% 
+  filter(maker %in% c("GMC", "BMW","Nissan", "Ford", "Honda", "Hyundai", "Kia", "Toyota", "Volkswagen")) %>% 
+  DT::datatable()
+```
+
+## 3. 자동차 연비 시각화 {#fuel-economy-visual}
+
+### 3.1. 연도별 자동차 연비변화 {#fuel-economy-visual-yearly}
+
+모든 제조사에 대해서 연비변화를 추적해보는 것보다 주요 자동차 제조사를 미국, 일본, 유럽, 한국에서 선정하여 
+연도별 연비변화를 추적해 보자.
+
+``` {r fuel-economy-by-year, fig.height=10}
+# 3. 연비 시각화 -----------
+## 3.0. 주요 자동차 제조사 -----------
+major_maker <- c("GMC", "Honda", "Hyundai", "Kia", "Toyota", "Volkswagen")
+
+fuel_df <- vehicles_df %>% 
+  filter(maker %in% major_maker) 
+
+## 3.1. 연도별 연비 변화 
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  ggplot(aes(x = cty_l, y = factor(year), fill=maker)) +
+    geom_density_ridges(scale = 3, alpha=0.7) + 
+    theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+    theme(legend.position = "none",
+          axis.text=element_text(size=6)) +
+    labs(x="연비(km/l)", y="", title="주요 자동차 제조사 연도별 연비 추세") +
+    guides(fill = guide_legend(nrow = 1)) +
+    facet_wrap(~maker) +
+    geom_vline(xintercept = 10)
+```
+
+### 3.2. 자동차 유형별 {#fuel-economy-visual-class}
+
+SUV, 소형, 중형 등 자동차 유형별 연비차이를 한국, 일본, 독일 대표 제조사를 대상으로 살펴보자.
+
+``` {r fuel-economy-by-class}
+## 3.2. 자동차 용도별 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  filter(str_detect(maker, "Hyundai|Toyota|Volkswagen")) %>% 
+  ggplot(aes(x = cty_l, y = vclass, fill=vclass)) +
+  geom_density_ridges(scale = 3, alpha=0.7) + 
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "none",
+        axis.text=element_text(size=12)) +
+  labs(x="연비(km/l)", y="", title="주요 자동차 용도별 비교") +
+  guides(fill = guide_legend(nrow = 1)) +
+  facet_wrap(~maker, ncol=3) +
+  geom_vline(xintercept = 10)
+```
+
+### 3.3. 자동차 엔진 실린더 갯수 {#fuel-economy-visual-cylinder}
+
+자동차 엔진 실린더 갯수별로 연비차이를 제조사와 비교하여 확인해 보자.
+
+``` {r fuel-economy-by-cylinder}
+## 3.3. 자동차 실린더 갯수 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  filter(str_detect(maker, "Hyundai|Toyota|Volkswagen")) %>% 
+  ggplot(aes(x = cty_l, y = factor(cyl), fill=cyl)) +
+  geom_density_ridges(scale = 3, alpha=0.7) + 
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "none",
+        axis.text=element_text(size=12)) +
+  labs(x="연비(km/l)", y="", title="주요 자동차 실린더 갯수별 비교") +
+  guides(fill = guide_legend(nrow = 1)) +
+  facet_wrap(~maker, ncol=3) +
+  geom_vline(xintercept = 10)
+```
+
+### 3.4. 자동차 엔진 배기량 {#fuel-economy-visual-displ}
+
+엔진 배기량에 따라 연비변화도 살펴보자.
+
+``` {r fuel-economy-by-displ}
+## 3.4. 배기량과 변속기 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  filter(str_detect(maker, "Hyundai|Toyota|Volkswagen")) %>% 
+  ggplot(aes(x=displ, y=cty_l, color=trans)) +
+    geom_point() +
+    facet_wrap(~maker) +
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "top",
+        axis.text=element_text(size=12)) +
+  labs(y="도심주행 연비(km/l)", x="배기량", title="주요 자동차 배기량과 변속기 도심주행 연비",
+       color="변속기") 
+```
+
+### 3.5. 도심주행과 고속도로 주행 연비 {#fuel-economy-visual-cty-hwy}
+
+도심주행과 고속도로 주행 연비에 대해서도 비교해보자.
+
+``` {r fuel-economy-by-cty-hwy}
+## 3.5. 자동차 도심주행과 고속도로 주행 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  filter(str_detect(maker, "Hyundai|Toyota|Volkswagen|GMC")) %>% 
+  ggplot(aes(x=cty_l, y=hwy_l, color=trans)) +
+  geom_point() +
+  facet_wrap(~maker) +
+  geom_abline(intercept = 0, slope=1, color = "darkgreen") +
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "top",
+        axis.text=element_text(size=12)) +
+  labs(x="도심주행 연비(km/l)", y="도심주행 연비(km/l)", title="주요 자동차 도심주행과 고속도로 주행 연비",
+       color="변속기") 
+```
+
+### 3.6. 도심주행연비와 이산화탄소 배출량 {#fuel-economy-visual-cty-co0}
+
+도심주행연비와 이산화탄소 배출량을 GM과 현대차를 비교해보자.
+
+``` {r fuel-economy-by-cty-co0}
+## 3.6. 자동차 도심주행연비와 CO2 배출량 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year > 1995) %>% 
+  filter(str_detect(maker, "Hyundai|GMC")) %>% 
+  ggplot(aes(x=cty_l, y=co2, color=maker)) +
+  geom_point() +
+  stat_smooth() +
+  # facet_wrap(~maker) +
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "top",
+        axis.text=element_text(size=12)) +
+  labs(x="도심주행 연비(km/l)", y="이산화탄소(CO2) 배출량", title="현대 vs. GM 도심주행연비와 이산화탄소 배출량",
+       color="제조사") 
+```
+
+### 3.7. 현대자동차 유형별 연비변화 {#fuel-economy-visual-cty-decade}
+
+현대자동차 도심주행연비 10년 변화를 살펴보자.
+
+``` {r fuel-economy-by-cty-decade}
+## 3.7. 현대자동차 연비 --------------
+## 3.7. 현대자동차 연비 --------------
+fuel_df %>% 
+  filter(fuel_type %in% c("Regular")) %>% 
+  filter(year %in% c(2017, 2007, 1997)) %>% 
+  filter(str_detect(maker, "Hyundai")) %>% 
+  filter(vclass != "Vans & Minivans") %>% 
+  ggplot(aes(x=cty_l, y=factor(year), fill=factor(vclass))) +
+  geom_density_ridges(scale = 3, alpha=0.7) + 
+  facet_wrap(~vclass) +
+  theme_minimal(base_size = 14, base_family = "NanumGothic") + 
+  theme(legend.position = "none",
+        axis.text=element_text(size=12)) +
+  labs(x="도심주행 연비(km/l)", y="", title="현대차 최근 20년간 자동차 연비", color="") 
+```
+
+
+
+

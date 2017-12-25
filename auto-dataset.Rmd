@@ -33,7 +33,15 @@ loadfonts()
 
 - [A2Mac1](https://www.a2mac1.com)
 - [캐글 - Automobile Dataset: Dataset consist of various characteristic of an auto](https://www.kaggle.com/toramky/automobile-dataset)
+- [캐글 - Auto-mpg dataset: Mileage per gallon performances of various cars](https://www.kaggle.com/uciml/autompg-dataset)
+- [https://www.fueleconomy.gov/](https://www.fueleconomy.gov/feg/download.shtml)
 
+
+## [에어백 제조사 - 다카다(Takada)](https://en.wikipedia.org/wiki/Takata_Corporation) [^takada-airbag-news]  {#takada-airbag-defects}
+
+[^takada-airbag-news]: [‘에어백 결함’ 다카다 도산 위기 … 빚 10조원 일본 기업 최대 -출처: 중앙일보](http://news.joins.com/article/21674372)
+
+<iframe width="300" height="180" src="https://www.youtube.com/embed/t_oAKCYmzXU" frameborder="0" gesture="media" allow="encrypted-media" allowfullscreen></iframe>
 
 
 

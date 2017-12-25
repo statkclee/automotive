@@ -20,6 +20,8 @@ title: 자동차 데이터
     - [초기품질지수(IQS)](auto-iqs.html)
     - [차량 내구성 조사(VDS)](auto-vds.html)
     - [초기품질지수 vs 차량 내구성 조사](auto-iqs-vds.html)
+- **자동차 경제성**
+    - [자동차 연비](auto-fuel-economy.html)
 
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
