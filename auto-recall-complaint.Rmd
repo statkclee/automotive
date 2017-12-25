@@ -1,0 +1,161 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: NHTSA - 현대기아차 리콜과 불만 추세(2001-2017)
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(openNHTSA) # devtools::install_github("statwonk/openNHTSA")
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+
+```
+
+## 1. NHTSA API 데이터 {#nhtsa-api-data}
+
+[미국 도로교통안전국(NHTSA)](https://www.nhtsa.gov/)은 미국에서 시판되는 자동차에 대한 리콜 및 고객불만 데이터를 
+[NHTSA Office of Defects Investigation (ODI) - Recalls](https://one.nhtsa.gov/webapi/Default.aspx?Recalls/API/83) 웹API를 통해서 제공하고 있다.
+
+R 팩키지도 공개되어 있어 [openNHTSA](https://github.com/statwonk/openNHTSA)를 통해서 별도 RESTful API 프로그래밍을 생략하고 R 코드로 
+자동차 리콜과 고객불만 데이터를 긁어올 수 있다.
+
+## 2. 현대기아차 자동차 리콜 {#nhtsa-api-recall}
+
+### 2.1. 리콜데이터 추출 환경설정 {#nhtsa-api-recall-setup}
+
+[openNHTSA](https://github.com/statwonk/openNHTSA) 예제 코드를 참조하여 2001-2017년까지 현대차와 기아차에 대한 리콜과 불만 데이터을 위한 설정을 준비한다.
+더불어 현대차와 기아차를 특정짓는 색상도 설정한다.
+
+``` {r nhtsa-recall-complaint-setup}
+# 0. 환경설정 ----------------
+# library(openNHTSA) # devtools::install_github("statwonk/openNHTSA")
+# library(tidyverse)
+# library(stringr)
+# library(forcats)
+# library(ggpubr)
+# library(extrafont)
+# loadfonts()
+
+## 1.0. NHTSA 데이터 긁어오기
+crawl_nhtsa <- function(maker, recall_complaint) {
+  
+  nhtsa_df <- data.frame()
+  
+  for(myear in 2001:2017) {
+    tmp_df <- facility(recall_complaint) %>%
+      model_year(myear) %>%
+      vehicle_make(maker) %>% 
+      nhtsa_fetch()
+    nhtsa_df <- bind_rows(nhtsa_df, tmp_df)
+  }
+  return(nhtsa_df)
+}
+## 1.0. 현대기아자동차 색상
+hkmc_cols <- c(KIA = "#ff0000",
+               HYUNDAI = "#0000ff")
+```
+
+### 2.2. 자동차 리콜 추세 시각화 {#nhtsa-api-recall-viz}
+
+`crawl_nhtsa` 함수에 현대차(`hyundai`)와 기아차(`kia`) 그리고 리콜인수(`recalls`)를 넣어 데이터를 긁어오고 
+이를 바탕으로 연도별 현대기아차 리콜 횟수를 시각화한다.
+
+``` {r nhtsa-recall-viz}
+# 1. 리콜 데이터 가져오기 ----------------
+## 1.1. 현대차 
+hyundai_df <- crawl_nhtsa("hyundai", "recalls")
+
+## 1.2. 기아차 
+kia_df <- crawl_nhtsa("kia", "recalls")
+
+## 1.3. 데이터 병합
+recall_df <- bind_rows(hyundai_df, kia_df)
+
+## 1.5. 데이터 시각화 -------------
+recall_df %>% 
+  count(Make, ModelYear) %>% 
+  ggplot(aes(x=ModelYear, y=n, group=Make, color=Make)) +
+    geom_line(size=1.1, alpha=0.3) +
+    geom_point(size=2, alpha=0.7) +
+    theme_pubr(base_family = "NanumGothic") +
+    labs(x="", y="리콜횟수 (2001 - 2017년)", title="자동차 제조사 리콜 추세", color="제조사") +
+    scale_color_manual(values=hkmc_cols)
+```
+
+## 3. 현대기아자동차 불만 추세 {#nhtsa-api-complaint}
+
+`crawl_nhtsa` 함수에 현대차(`hyundai`)와 기아차(`kia`) 그리고 불만(`complaints`)인수를 넣어 데이터를 긁어오고 
+이를 바탕으로 연도별 현대기아차 불만 횟수를 시각화한다.
+
+``` {r nhtsa-complaint-viz}
+# 2. 항의 데이터 가져오기 ----------------
+## 2.1. 현대차 
+hyundai_comp_df <- crawl_nhtsa("hyundai", "complaints")
+
+## 2.2. 기아차 
+kia_comp_df <- crawl_nhtsa("kia", "complaints")
+
+## 2.3. 데이터 병합
+complaint_df <- bind_rows(hyundai_comp_df, kia_comp_df) 
+
+# 3. 데이터 시각화 -------------
+## 3.1. 제조사별 연도 추세
+complaint_df %>% 
+  count(Make, ModelYear) %>% 
+  ggplot(aes(x=ModelYear, y=n, group=Make, color=Make)) +
+  geom_line() +
+  geom_point() +
+  theme_pubr(base_family = "NanumGothic") +
+  labs(x="", y="불만횟수", title="자동차 제조사 불만 추세", color="제조사") +
+  scale_color_manual(values=hkmc_cols)
+```
+
+## 3. 현대기아자동차 모델별 리콜과 불만 횟수 {#nhtsa-api-recall-complaint-by-model}
+
+2001 - 2017년 현대기아자동차 모델별 리콜과 불만 횟수를 세어보자.
+
+``` {r nhtsa-model-recall-complaint-by-model, fig.height=10}
+# 3. 모델별 데이터 시각화 -------------
+## 3.1. 모델별 리콜 데이터 시각화
+recall_df %>% 
+  filter(str_detect(Make, "HYUNDAI|KIA")) %>% 
+  count(Make, Model) %>% 
+  ggplot(aes(x=reorder(Model, n), y=n, fill=Make)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  labs(x="", y="리콜횟수(2001 - 2017년)", title="현대 기아자동차 리콜횟수", fill="제조사") +
+  theme_pubr(base_family = "NanumGothic") +
+  scale_fill_manual(values=hkmc_cols) +
+  theme(axis.text = element_text(size=8))
+
+## 3.2. 모델별 불만 데이터 시각화
+complaint_df %>% 
+  filter(str_detect(Make, "HYUNDAI|KIA")) %>% 
+  count(Make, Model) %>% 
+  ggplot(aes(x=reorder(Model, n), y=n, fill=Make)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  labs(x="", y="불만횟수(2001 - 2017년)", title="현대 기아자동차 불만횟수", fill="제조사") +
+  theme_pubr(base_family = "NanumGothic") +
+  scale_fill_manual(values=hkmc_cols) +
+  theme(axis.text = element_text(size=8))
+```
+
+
+

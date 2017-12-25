@@ -14,15 +14,18 @@ title: 자동차 데이터
 
 ## 학습목차 
 
-- [자동차 데이터](auto-dataset.html)
-- [자동차 생산량 - 제조사별, 국가별](auto-vehicle-production.html)
+- **자동차 생산**
+    - [자동차 생산량 - 제조사별, 국가별](auto-vehicle-production.html)
 - **자동차 품질**
     - [초기품질지수(IQS)](auto-iqs.html)
     - [차량 내구성 조사(VDS)](auto-vds.html)
     - [초기품질지수 vs 차량 내구성 조사](auto-iqs-vds.html)
 - **자동차 경제성**
     - [자동차 연비](auto-fuel-economy.html)
-
+- **리콜과 불만**
+    - [NHTSA - 현대기아차 리콜과 불만 추세(2001-2017)](auto-recall-complaint.html)
+- **기타**
+    - [자동차 데이터](auto-dataset.html)
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 
