@@ -41,9 +41,9 @@ JD파워에서 해당 자동차를 실제로 구입한 사람들을 대상으로
 초기품질조사는 구매한지 90일이 지난 소비자를 대상으로 한 조사이며,
 자동차 내구성 조사(VDS, Vehicle Dependability Study)는 차량을 구매한 지 3년이 지난 소비자를 대상으로 한 조사다.
 
-## 2. JD 파워 IQS 데이터 [rvest-scraping] {#automotive-iqs-data}
+## 2. JD 파워 IQS 데이터 [^rvest-scraping] {#automotive-iqs-data}
 
-[rvest-scraping]: [rvest - Scraping HTML Tables](http://bradleyboehmke.github.io/2015/12/scraping-html-tables.html)
+[^rvest-scraping]: [rvest - Scraping HTML Tables](http://bradleyboehmke.github.io/2015/12/scraping-html-tables.html)
 
 JD 파워 IQS 데이터가 [JD 파워](http://www.jdpower.com/) 웹사이트에서 
 [U.S. New-Vehicle Quality Makes Largest Improvement in 7 Years, J.D. Power Study Finds](http://www.jdpower.com/press-releases/2016-us-initial-quality-study-iqs)와 같은 형태로 제공된다.
@@ -53,6 +53,8 @@ IQS 원데이터 형태로 제공한다. 이를 종합하면 JD 파워에서 원
 - PDF 파일에서 텍스트를 추출하여 표형태 데이터로 변환
 - PDF 파일에서 이미지를 추출하여 OCR을 통해 표형태 데이터로 변환
 - 웹사이트에서 데이터를 긁어와서 표형태 데이터로 변환
+
+<img src="fig/iqs-data-import.png" alt="데이터 가져오기" width="77%" />
 
 ### 2.1. 환경설정 {#automotive-iqs-data-package}
 
@@ -87,6 +89,15 @@ IQS 제조사와 결함갯수(문제갯수)만 정규표현식을 활용하여 �
 
 IQS 2017년 데이터의 경우 `rvest` 팩키지를 활용하여 웹사이트에서 IQS 데이터를 긁어와서 IQS 제조사와 결함갯수(문제갯수)만 정규표현식을 활용하여 정제해서
 데이터프레임으로 저장한다. 
+
+- 2011: [Initial Quality of Recent Vehicle Launches is Considerably Lower than in 2010, While Carryover Model Quality is Better than Ever](http://www.jdpower.com/press-releases/2011-initial-quality-study)
+- 2012: [https://www.autohaus.de/](https://www.autohaus.de/fm/3478/Initial%20Quality%20Study%202012.pdf)
+- 2013: [Nearly Two-Thirds of Problems Owners Experience With Their New Vehicle Are Design-Related; Few Can be Fixed](http://www.jdpower.com/sites/default/files/2013087-iqs.pdf)
+- 2014: [Initial Quality Problems Increase as Automakers Struggle to Launch Vehicles with Technology That Consumers Find Easy to Use](http://www.jdpower.com/press-releases/2014-us-initial-quality-study-iqs)
+- 2015: [Korean Brands Lead Industry in Initial Quality, While Japanese Brands Struggle to Keep Up with Pace of Improvement](http://www.jdpower.com/sites/default/files/2015080_IQS.pdf)
+- 2016: [U.S. New-Vehicle Quality Makes Largest Improvement in 7 Years, J.D. Power Study Finds](http://www.jdpower.com/sites/default/files/2016097_us_iqs.pdf)
+- 2017: [New-Vehicle Initial Quality is Best Ever, J.D. Power Finds](http://www.jdpower.com/sites/default/files/2017085_u.s._iqs_v3.pdf)
+
 
 ``` {r auto-iqs-data-import}
 # 1. 데이터 가져오기 ---------------
