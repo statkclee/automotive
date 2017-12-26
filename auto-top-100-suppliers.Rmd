@@ -1,0 +1,150 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 글로벌 자동차 부품공급사(상위 100사)
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(readxl)
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+library(xts)
+library(ggmap)
+library(leaflet)
+
+```
+
+
+## 1. 글로벌 자동차 부품 공급사 {#autonews-suppliers}
+
+[Automotive News](https://www.autonews.com/)사에서 매년 자동차 공급사 100개를 뽑아서 데이터를 제공하고 있다.
+[Automotive News 선정 Top Supplier Rankings](http://www.autonews.com/section/datalist40)에 데이터가 2005년부터 최근까지 데이터가 잘 정리되어 있다.
+
+- [Top 100 Global Suppliers (2016) - Automotive News - 다운로드](https://www.autonews.com/assets/XLS/CA105777620.XLS)
+
+## 2. 글로벌 자동차 부품 공급사 데이터 {#autonews-suppliers-data}
+
+
+### 2.1. 환경설정과 데이터 불러오기 {#autonews-suppliers-data-import}
+
+오토뉴스 웹사이트에서 가져온 데이터를 불러오고 데이터분석에 필요한 팩키지를 사전 준비한다.
+
+``` {r autonews-supplier-setup}
+# 0. 환경설정 ----------------
+# library(readxl)
+# library(tidyverse)
+# library(stringr)
+# library(forcats)
+# library(ggpubr)
+# library(extrafont)
+# loadfonts()
+# library(xts)
+# library(ggmap)
+# library(leaflet)
+
+# 1. 데이터 불러오기 ---------------
+autonews_dat <- read_excel("data/CA105777620.XLS", sheet="Top 100 Global Suppliers (2016)", skip=1)
+```
+
+### 2.2. 데이터 정제 {#autonews-supplier-preprocessing}
+
+엑셀로 데이터가 잘 정리되어 있지만 데이터프레임 형태로 데이터 분석하기 적절한 형태로 가공한다.
+특히, 각 부품공사마다 공급하는 제품과 주소를 적절한 정제과정을 거쳐 깔끔하게 정리한다.
+
+``` {r autonews-supplier-preprocessing}
+# 2. 데이터 정제 ---------------
+## 2.1. 자동차 공급사 목록 -----
+autonews_df <- autonews_dat %>% 
+  filter(!is.na(`2015\nrank`)) %>% 
+  filter(row_number() <= 247)
+
+## 2.2. 자동차 제조품목 -----
+autonews_product_df <- autonews_dat %>% select(`2015\nrank`, Products) %>% 
+  filter(row_number() <= 247) %>% 
+  mutate(`2015\nrank` = na.locf(`2015\nrank`)) %>%  group_by(`2015\nrank`) %>% 
+  summarise(items = paste0(Products, collapse = ",")) %>% 
+  mutate(items = str_replace(items, ",NA$", ""))
+
+## 2.2. 자동차 제조품목 -----
+autonews_address_df <- autonews_dat %>% select(`2015\nrank`, Address) %>% 
+  filter(row_number() <= 247) %>% 
+  mutate(`2015\nrank` = na.locf(`2015\nrank`)) %>%  group_by(`2015\nrank`) %>% 
+  summarise(address = paste0(Address, collapse = ","))  %>% 
+  mutate(address = str_replace(address, ",NA", ""))
+
+## 2.3. 자동차 부품사와 제조품목 병합 -----
+
+autonews_df <- left_join(autonews_df, autonews_product_df, "2015\nrank") %>% 
+  select(-X__1, -X__2, -X__3, -Products) 
+
+autonews_df <- left_join(autonews_df, autonews_address_df, "2015\nrank") %>% 
+  select(-Address) 
+
+colnames(autonews_df) <- c(c("rank_2015", "company", "top_executive", "sales_2015", 
+                             "sales_2014", "NA_percent", "EU_percent", "AS_percent", 
+                             "ETC_percent", "rank_2014", "items", "address"))
+
+autonews_df <- autonews_df %>% 
+  mutate(NA_percent = ifelse(is.na(NA_percent), 0, NA_percent),
+         EU_percent = ifelse(is.na(EU_percent), 0, EU_percent),
+         AS_percent = ifelse(is.na(AS_percent), 0, AS_percent),
+         ETC_percent = ifelse(is.na(ETC_percent), 0, ETC_percent))
+
+DT::datatable(autonews_df)  
+```
+
+## 3. 부품공급사 본사 주소  {#autonews-supplier-hq-address}
+
+본격적인 데이터 분석에 앞서 부품공급사가 위치한 주소 정보를 이용하여 전세계 지도위에 표기한다.
+앞서 `ggmap` 팩키지 `geocode()` 함수를 활용하여 위경도 정보를 받아 놓고 이를 조인하여 지도위에 표기한다.
+
+``` {r autonews-supplier-geoinfo}
+# 1. 데이터 불러오기 ---------------
+supplier_df <- readRDS("data_processed/autonews_df.rds") %>% 
+  mutate(address = str_replace(address, ",NA", ""))
+
+supplier_lonlat <- readRDS("data_processed/supplier_lonlat.rds")
+
+# 2. 지리정보 ---------------
+## 2.1. 지리정보 데이터: 위도 경도 ---
+
+# supplier_lonlat <- geocode(supplier_df$address, source="google")
+# saveRDS(supplier_lonlat, "data_processed/supplier_lonlat.rds")
+
+supplier_lonlat_df <- bind_cols(supplier_df, supplier_lonlat)
+
+# saveRDS(supplier_lonlat_df, "data_processed/supplier_lonlat_df.rds")
+
+leaflet(data = supplier_lonlat_df) %>% 
+  addProviderTiles(providers$OpenStreetMap) %>% 
+  addMarkers(lng=~lon, lat=~lat, 
+             popup = ~ as.character(paste0("<strong> 글로벌 자동차 부품공급사 </strong><br><br>", 
+                                           "&middot; 순위(2015): ", rank_2015, "<br>",
+                                           "&middot; 회사명: ", company, "<br>",
+                                           "&middot; 대표: ", top_executive, "<br>",
+                                           "&middot; 매출(백만$): ", scales::comma(sales_2015), "<br>",
+                                           "&nbsp&nbsp&nbsp &middot; 북미: ", NA_percent, " %<br>",
+                                           "&nbsp&nbsp&nbsp &middot; 유럽: ", EU_percent, " %<br>",
+                                           "&nbsp&nbsp&nbsp &middot; 아시아: ", AS_percent, " %<br>",
+                                           "&nbsp&nbsp&nbsp &middot; 기타: ", ETC_percent, " %<br>",
+                                           "&middot; 공급부품: ", items, "<br>")), clusterOptions = markerClusterOptions())
+
+
+```
+
