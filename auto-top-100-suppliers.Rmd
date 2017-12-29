@@ -27,6 +27,7 @@ loadfonts()
 library(xts)
 library(ggmap)
 library(leaflet)
+library(readxl)
 
 ```
 
@@ -131,12 +132,15 @@ supplier_lonlat_df <- bind_cols(supplier_df, supplier_lonlat)
 
 # saveRDS(supplier_lonlat_df, "data_processed/supplier_lonlat_df.rds")
 
-leaflet(data = supplier_lonlat_df) %>% 
+supplier_geo_df <- read_excel("data/supplier_address_csv.xlsx")
+
+leaflet(data = supplier_geo_df) %>% 
   addProviderTiles(providers$OpenStreetMap) %>% 
-  addMarkers(lng=~lon, lat=~lat, 
+  addMarkers(lng=~Longitude, lat=~Latitude, 
              popup = ~ as.character(paste0("<strong> 글로벌 자동차 부품공급사 </strong><br><br>", 
                                            "&middot; 순위(2015): ", rank_2015, "<br>",
                                            "&middot; 회사명: ", company, "<br>",
+                                           "&middot; 주소: ", address, "<br>",
                                            "&middot; 대표: ", top_executive, "<br>",
                                            "&middot; 매출(백만$): ", scales::comma(sales_2015), "<br>",
                                            "&nbsp&nbsp&nbsp &middot; 북미: ", NA_percent, " %<br>",
