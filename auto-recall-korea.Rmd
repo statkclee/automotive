@@ -1,0 +1,231 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: 공공데이터포털 - 대한민국 리콜(2011-2016)
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+library(tidyverse)
+library(readxl)
+library(xts)
+library(stringr)
+library(lubridate)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+
+```
+
+
+## 1. 자동차 리콜 [^korea-recall-2017] {#recall-korea-automotive}
+
+[^korea-recall-2017]: [카미디어, 올해 車리콜 역대 최대..현대-기아차 80% 차지, 2017.12.29 10:16](http://v.auto.daum.net/v/L5uIFeCQLn)
+
+공공데이터포털에서 [자동차결함 리콜현황](https://www.data.go.kr/dataset/3048950/fileData.do) 데이터를 받아볼 수 있다.
+2017년은 현재시점(`r Sys.Date()`) 올라와있지 않지만, 2011-2016년까지는 다양한 형태로 데이터를 정제하지도 않은 상태로 `.csv`, `.xls` 파일 형태로 올라와 있다.
+
+따라서, 추가적인 분석을 위해서 데이터정제 작업은 각자 진행하여 분석작업을 수행한다.
+
+## 2. 연도별 품질 문제가 많은 자동차 제조사 {#recall-korea-automotive-maker}
+
+### 2.1. 데이터 가져오기 {#recall-korea-import}
+
+2011년부터 2016년까지 데이터를 불러온다. UTF-8인코딩을 맞추기 위해서 `read.csv` 함수로 `fileEncoding="EUC-KR"` 인자를 넘겨 
+우선 데이터를 불러들인다.
+
+``` {r recall-korea-import}
+# 0. 환경설정 ---------------
+# library(tidyverse)
+# library(readxl)
+# library(xts)
+# library(stringr)
+# library(lubridate)
+# library(ggpubr)
+# library(extrafont)
+# loadfonts()
+
+# 1. 데이터 가져오기 ------
+
+recall_2011_dat <- read.csv("data/공공데이터포털/리콜현황(2011년).csv", fileEncoding="EUC-KR", skip=1)
+recall_2012_dat <- read.csv("data/공공데이터포털/리콜현황(2012년).csv", fileEncoding="EUC-KR", skip=1)
+recall_2013_dat <- read.csv("data/공공데이터포털/자동차 결함 리콜현황(2013년).csv", fileEncoding="EUC-KR")
+recall_2014_dat <- read_excel("data/공공데이터포털/리콜현황(2014년).xlsx", skip=1)
+recall_2015_dat <- read.csv("data/공공데이터포털/자동차리콜현황(2015).csv", fileEncoding="EUC-KR")
+recall_2016_dat <- read.csv("data/공공데이터포털/자동차리콜현황(2016).csv", fileEncoding="EUC-KR")
+```
+
+### 2.2. 데이터 전처리 {#recall-korea-preprocess}
+
+데이터 형태가 다르기 때문에 해당 연도에 맞춰 적절한 형태로 연도별 데이터프레임을 적절한 형태로 가공한다.
+
+``` {r recall-korea-preprocess}
+# 2. 데이터 전처리 ------
+## 2011년 
+recall_2011_df <- recall_2011_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2011-01-01") %>% 
+  separate(생산기간, into=c("생산시작", "생산종료"), sep="~")
+
+## 2012년 
+recall_2012_df <- recall_2012_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2012-01-01") %>% 
+  separate(생산기간, into=c("생산시작", "생산종료"), sep="~")
+
+## 2013년 
+recall_2013_df <- recall_2013_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2013-01-01") %>% 
+  rename(생산시작=`생산기간.부터.`, 생산종료=`생산기간.까지.`)
+
+## 2014년 
+recall_2014_df <- recall_2014_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2014-01-01") %>% 
+  separate(생산기간, into=c("생산시작", "생산종료"), sep="~")
+
+## 2015년 
+recall_2015_df <- recall_2015_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2015-01-01") %>% 
+  rename(생산시작=`생산기간.부터.`, 생산종료=`생산기간.까지.`)
+
+## 2016년 
+recall_2016_df <- recall_2016_dat %>% 
+  tbl_df() %>% 
+  mutate(연도 = "2016-01-01") %>% 
+  rename(생산시작=`생산기간.부터.`, 생산종료=`생산기간.까지.`) %>% 
+  select(-X, -X.1)
+
+## 데이터 병합 -----------
+recall_df <- recall_2011_df %>% 
+  bind_rows(recall_2012_df) %>% 
+  bind_rows(recall_2013_df) %>% 
+  bind_rows(recall_2014_df) %>% 
+  bind_rows(recall_2015_df) %>% 
+  bind_rows(recall_2016_df)
+```
+
+### 2.3. 데이터 전처리 - 제조사 {#recall-korea-preprocess-maker}
+
+자동차 제조사를 적절한 범주로 나눠 다시 재분류한다.
+
+``` {r recall-korea-preprocess-maker}
+# 2. 데이터 전처리 ------
+## 2.1. 자동차 제조사 정리 -----
+recall_df <- recall_df %>% 
+  mutate(제조사 = case_when(
+    str_detect(제작사, "대우|지엠|GM|타타") ~ "지엠대우",
+    str_detect(제작사, "현대") ~ "현대차",
+    str_detect(제작사, "기아") ~ "기아차",
+    str_detect(제작사, "혼다") ~ "혼다",
+    str_detect(제작사, "볼보") ~ "볼보",
+    str_detect(제작사, "토요타") ~ "토요타",
+    str_detect(제작사, "벤츠|다임러") ~ "다임러벤츠",
+    str_detect(제작사, "닛산") ~ "닛산",
+    str_detect(제작사, "에프씨에이|크라이슬러") ~ "크라이슬러",
+    str_detect(제작사, "비엠더블유") ~ "BMW",
+    str_detect(제작사, "아우디") ~ "아우디",
+    str_detect(제작사, "포드") ~ "포드",
+    str_detect(제작사, "재규어|랜드로버") ~ "재규어랜드로버",
+    str_detect(제작사, "한불") ~ "푸조",
+    str_detect(제작사, "기흥") ~ "애스턴마틴",
+    str_detect(제작사, "스즈키") ~ "스즈키",
+    str_detect(제작사, "삼성") ~ "르노삼성",
+    str_detect(제작사, "쌍용") ~ "쌍용",
+    str_detect(제작사, "포르쉐|스투트가르트") ~ "포르쉐",
+    str_detect(제작사, "만트럭|만 트럭") ~ "만트럭",
+    str_detect(제작사, "스카니아") ~ "스카니아",
+    str_detect(제작사, "모토로싸|모터로싸") ~ "두카티",
+    str_detect(제작사, "스바루") ~ "스바루",
+    str_detect(제작사, "에프엠케이") ~ "마세라티-페라리",
+    str_detect(제작사, "미쓰비시") ~ "미쓰비시",
+    str_detect(제작사, "대전") ~ "오토바이-대전",
+    str_detect(제작사, "한국모터") ~ "오토바이-야마하",
+    str_detect(제작사, "스포츠모터사이클") ~ "오토바이-TKM",
+    str_detect(제작사, "S&T모터스|대림|화창") ~ "오토바이-스즈키",
+    str_detect(제작사, "모토스타코리아") ~ "오토바이-SYM",
+    str_detect(제작사, "락락") ~ "스타크래프트밴",
+    str_detect(제작사, "씨엔에이치") ~ "이베코-버스",
+    TRUE ~ "기타"
+  ))
+# 오토바이 제외 !!!
+recall_df <- recall_df %>% 
+  filter(!str_detect(제조사, "오토바이"))
+```
+
+
+### 2.4. 데이터 전처리 - 리콜일 {#recall-korea-preprocess-day}
+
+리콜시작일이 연도마다 다르기 때문에 적절한 형태로 가공한다.
+
+``` {r recall-korea-preprocess-day}
+## 2.2. 리콜개시일 -----
+recall_df <- recall_df %>% 
+  mutate(리콜개시일 = str_replace_all(리콜개시일, "\\`", "")) %>% 
+  mutate(리콜시작일 = str_split(리콜개시일,"\\.|-|~")) %>% 
+  mutate(연도 = map_chr(리콜시작일, 1),
+         월 = map_chr(리콜시작일, 2),
+         일 = map_chr(리콜시작일, 3)) %>%
+  mutate(월 = str_pad(월, 2, "left", pad="0"),
+         일 = str_pad(일, 2, "left", pad="0"),
+         연도 = ifelse(str_length(연도) ==2, paste0("20", 연도), 연도)) %>% 
+  mutate(리콜일 = lubridate::ymd(paste0(연도, "-", 월, "-", 일))) %>% 
+  select(-연도, -월, -일, -리콜시작일, -리콜개시일)
+```  
+
+## 3. 나름 정리한 데이터 {#recall-korea-clean-data}
+
+제조사, 리콜일을 정리한 데이터를 향후 분석을 위해 살펴보자.
+추가적인 분석을 원하는 경우 [클릭](data/recall_korea_2011_2016.csv)하여 다운로드하여 가져간다.
+
+
+``` {r recall-korea-table}
+# 4. 리콜 데이터 표 -----  
+recall_df %>% 
+  select(리콜일, 제조사, 제작사, 차명, 생산시작, 생산종료, 리콜사유) %>% 
+  DT::datatable()
+```
+
+## 4. 현대차, 기아차를 포함한 리콜 상위 10사  {#recall-korea-top-10}
+
+현대, 기아차는 리콜 상위 10위안에 들지 못했지만, 2011년부터 리콜 명령을 받은 횟수가 높은 제조사를 연도별로 시각화하자.
+
+``` {r recall-korea-recall-maker-viz, fig.height=10}
+# 3. 연도별 리콜 시각화 -----  
+
+top_10_maker_v <- recall_df %>% 
+  mutate(리콜년도 = year(리콜일)) %>% 
+  count(제조사, sort=TRUE) %>% 
+  top_n(10, n) %>% pull(제조사) %>% 
+  c("현대차", "기아차")
+  
+recall_df %>% 
+  mutate(리콜년도 = year(리콜일)-2000) %>% 
+  count(리콜년도, 제조사, sort=TRUE) %>% 
+  filter(제조사 %in% top_10_maker_v) %>% 
+  mutate(제조사 = factor(제조사, levels=c("현대차", "기아차", "BMW", "다임러벤츠", "지엠대우", "아우디", "혼다", "재규어랜드로버", 
+                                    "포드", "크라이슬러", "푸조", "볼보"))) %>% 
+  ggplot(aes(x=리콜년도, y=n, group=제조사, color=제조사)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~제조사) +
+    theme_pubr(base_family = "NanumGothic") +
+    labs(x="", y="리콜발생수") +
+    theme(legend.position = "none")
+```  
+
+
+
