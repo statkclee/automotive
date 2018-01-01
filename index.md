@@ -26,6 +26,7 @@ title: 자동차 데이터
 - **리콜과 불만**
     - [NHTSA - 현대기아차 리콜과 불만 추세(2001-2017)](auto-recall-complaint.html)
         - [NHTSA - 현대기아차 리콜 고장부품](auto-recall-component.html)
+        - [NHTSA - 현대기아차 고객불만 고장부품](auto-complaint-component.html)
     - [공공데이터포털 - 대한민국 리콜(2011-2016)](auto-recall-korea.html)
 - **기타**
     - [자동차 데이터](auto-dataset.html)

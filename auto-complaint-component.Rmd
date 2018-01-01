@@ -1,0 +1,153 @@
+---
+layout: page
+title: xwMOOC 자동차
+subtitle: NHTSA - 현대기아차 고객불만 고장부품
+date: "`r Sys.Date()`"
+author: xwMOOC
+output:
+  html_document: 
+    toc: yes
+    hightlight: tango 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: NanumGothic
+---
+
+``` {r, include=FALSE}
+source("tools/chunk-options.R")
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=12)
+
+# devtools::install_github("statwonk/openNHTSA")
+library(openNHTSA)
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(ggpubr)
+library(extrafont)
+loadfonts()
+
+## 1.1. 현대차 데이터...
+hyundai_recall_df <- readRDS("data/hyundai_recall_df.rds")
+hyundai_complaint_df <- readRDS("data/hyundai_complaint_df.rds")
+
+## 1.2. 기아차 데이터...
+kia_recall_df <- readRDS("data/kia_recall_df.rds")
+kia_complaint_df <- readRDS("data/kia_complaint_df.rds")
+```
+
+
+## 1. 고객불만 상세내역 데이터 긁어오기 {#nthsa-complaint-crawl-again}
+
+[NHTSA - 현대기아차 리콜과 불만 추세(2001-2017)](https://statkclee.github.io/automotive/auto-recall-complaint.html)에서 
+현대기아차 자동차 리콜 추세를 살펴보기 위한 상위수준 데이터를 긁어왔다면, 이번에는 동일한 기간 2001-2017 리콜에 대한 상세 내역을 긁어와서 분석을 추가로 추진한다.
+
+현대기아차 리콜 부품에 대한 [자료추출 및 리콜 부품 분석](https://statkclee.github.io/automotive/auto-recall-component.html)을 참조한다.
+
+
+## 2. 현대기아차 고개불만 고장부품 데이터  {#nhtsa-api-complaint-part}
+
+### 3.1. 현대기아차 고객불만 내역 데이터 준비 {#nhtsa-api-complaint-part-setup}
+
+현대차 고객불만 `hyundai_complaint_df`, 기아차 고객불만 `kia_complaint_df`을 합하여 `complaint_df` 분석용 데이터를 준비한다.
+
+``` {r hkmc-complaint-hmc-run-setup}
+## 1.4. 불만 데이터
+complaint_df <- bind_rows(hyundai_complaint_df, kia_complaint_df)
+```
+
+### 3.2. 현대기아차 고객불만 내역 데이터 전처리 {#nhtsa-api-complaint-part-preprocess}
+
+현대기아차 북미 NTHSA에서 리콜 부품과 마찬가지로 고객불만에 대해서도 BOM 위계체계를 갖는 형태로 데이터를 제공하기 하기 때문에 
+가장 상단 시스템 수준에 대한 고장부품/시스템에 대해서 분석을 하기 위해서 일정부분 전처리가 필요하다.
+
+또한, 고객불만 당시 한가지 부품만 문제가 되는 것이 아니라 다수 부품이 문제가 되기 때문에 이에 대해서도 적절한 
+데이터 정제과정을 거쳐 깔끔하게 정리한다.
+
+``` {r hkmc-complaint-hmc-run-preprocess}
+# 2. 탐색적 데이터 분석 -------------
+## 2.1. BOM 수준별 정리
+bom_part_df <- complaint_df %>% 
+  count(Component, sort=TRUE) %>% 
+  mutate(bom = str_split(Component, "\\|")) %>% 
+  unnest(bom) %>% 
+  mutate(part = str_split(bom, ":")) %>% 
+  mutate(level = map_int(part, length)) %>% 
+  unnest(part) %>% 
+  mutate(part = str_trim(part)) #처음과 끝 공백 제거
+
+## 2.2. BOM 최상위 수준
+bom_system_df <- bom_part_df %>% group_by(Component, bom, level) %>% 
+  summarise(system_part = first(part),
+            complaint_cnt = first(n)) %>% 
+  ungroup() %>% 
+  select(Component, system_part, complaint_cnt)
+```
+
+## 3. 현대기아차 고객불만 고장부품 분석 {#nhtsa-api-complaint-part-analysis}
+
+### 3.1. 자동차 모델별 고객불만 표 {#nhtsa-api-complaint-by-model}
+
+가장 먼저 현대기아차 모델별 고객불만 횟수를 표로 도식화한다.
+
+``` {r hkmc-complaint-part-by-model}
+# 3. 고객불만 자동차 부품 표/시각화 -------------
+## 3.1. 자동차 모델
+complaint_df %>% count(Model, sort=TRUE) %>% 
+  mutate(비율 = n/ sum(n),
+         누적비율 = cumsum(비율)) %>% 
+  select(차량모델=Model, 불만횟수=n, everything()) %>% 
+  DT::datatable() %>% 
+  DT::formatCurrency(c("불만횟수"), currency="", digits=0) %>% 
+  DT::formatPercentage(c("비율", "누적비율"), digits=1)
+```
+
+### 3.2. 자동차 부품별 고객불만 표 {#nhtsa-api-complaint-by-part}
+
+다음으로 현대기아차 부품별로 가장 많은 고객불만을 일으킨 부품을 표로 정리한다.
+
+``` {r hkmc-complaint-part-by-part}
+## 3.2. 고객불만 자동차 부품
+bom_system_df %>% group_by(system_part) %>% 
+  summarise(complaint_sum = sum(complaint_cnt)) %>% 
+  arrange(desc(complaint_sum)) %>% 
+  mutate(비율 = complaint_sum/ sum(complaint_sum),
+         누적비율 = cumsum(비율)) %>% 
+  select(불만부품=system_part, 불만횟수=complaint_sum, everything()) %>% 
+  DT::datatable() %>% 
+  DT::formatCurrency(c("불만횟수"), currency="", digits=0) %>% 
+  DT::formatPercentage(c("비율", "누적비율"), digits=1) 
+```
+
+### 3.3. 자동차 부품별 고객불만 상세표 {#nhtsa-api-complaint-by-part-model-tbl}
+
+현대기아차 차량모델, 부품별을 표로 작성하여 살펴보면 다음과 같다.
+
+``` {r hkmc-complaint-part-by-part-model-tbl}
+## 3.3. 자동차 모델과 고객불만 자동차 부품
+complaint_component_model_df <- complaint_df %>% select(Make, Model, ModelYear, Component) %>% 
+  mutate(bom = str_split(Component, "\\|")) %>% 
+  unnest(bom) %>% 
+  mutate(system_part = ifelse(str_detect(bom, ":"), str_extract(bom, "(^.*):"), bom)) %>% 
+  mutate(system_part = str_trim(str_replace_all(system_part, ":", "")))
+
+complaint_component_model_df %>% 
+  count(Model, system_part, sort=TRUE) %>% 
+  mutate(비율 = n/ sum(n)) %>% 
+  select(차량모델=Model, 고장부품=system_part, 불만횟수=n, everything()) %>% 
+  DT::datatable() %>% 
+  DT::formatCurrency(c("불만횟수"), currency="", digits=0) %>% 
+  DT::formatPercentage(c("비율"), digits=1)
+
+```
+
+### 3.4. 자동차 부품별 고객불만 상세 데이터 {#nhtsa-api-recall-by-part-model-detail}
+
+현대기아차 차량모델, 부품별로 고객불만 상세 내역을 차량 출시 연도와 함께 표로 살펴볼 수 있도록 정리한다.
+
+``` {r hkmc-complaint-part-by-part-model-detail}
+complaint_component_model_df %>% 
+  select(-bom) %>% 
+  DT::datatable()
+```
+
+
